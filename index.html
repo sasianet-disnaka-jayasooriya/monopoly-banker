@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0a1f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Digital banker for Monopoly India board game">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏦</text></svg>">
+  <title>Monopoly Banker India</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a1f14; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
+    input { -webkit-appearance: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script type="text/babel">
+const { useState, useReducer, createContext, useContext, useEffect, useCallback } = React;
+
+const STARTING_BALANCE = 15000;
+const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 8;
+const SAVE_KEY = "monopoly-india-v1";
+const fmt = (n) => "\u20B9" + Number(n).toLocaleString("en-IN");
+
+const storage = {
+  get: (k) => { try { return { value: localStorage.getItem(k) }; } catch(e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch(e) {} },
+  del: (k) => { try { localStorage.removeItem(k); } catch(e) {} },
+};
+
+const TOKENS = [
+  { id: "auto", emoji: "\uD83D\uDEFA", label: "Auto" },
+  { id: "elephant", emoji: "\uD83D\uDC18", label: "Elephant" },
+  { id: "cricket", emoji: "\uD83C\uDFCF", label: "Cricket" },
+  { id: "train", emoji: "\uD83D\uDE82", label: "Train" },
+  { id: "peacock", emoji: "\uD83E\uDD9A", label: "Peacock" },
+  { id: "lotus", emoji: "\uD83E\uDEB7", label: "Lotus" },
+  { id: "hat", emoji: "\uD83C\uDFA9", label: "Top Hat" },
+  { id: "boot", emoji: "\uD83D\uDC62", label: "Boot" },
+];
+
+const QUICK_AMOUNTS = [500, 1000, 1500, 2000, 2500, 3000, 4000, 5000];
+
+const COMMON_PAYMENTS = [
+  { label: "Pass GO", amount: 2000, type: "collect", note: "Passed GO" },
+  { label: "Income Tax", amount: 2000, type: "pay", note: "Income Tax" },
+  { label: "Luxury Tax", amount: 1000, type: "pay", note: "Luxury Tax" },
+  { label: "Jail Fine", amount: 500, type: "pay", note: "Get Out of Jail" },
+];
+
+const CG = {
+  brown: { name: "Brown", color: "#8B4513" },
+  lightBlue: { name: "Light Blue", color: "#87CEEB" },
+  pink: { name: "Pink", color: "#D81B60" },
+  orange: { name: "Orange", color: "#FF8F00" },
+  red: { name: "Red", color: "#D32F2F" },
+  yellow: { name: "Yellow", color: "#FDD835" },
+  green: { name: "Green", color: "#388E3C" },
+  darkBlue: { name: "Dark Blue", color: "#1565C0" },
+  railroad: { name: "Railway", color: "#555" },
+  utility: { name: "Utility", color: "#78909C" },
+};
+
+const PROPS = [
+  { id: "chandni", name: "Chandni Chowk, Delhi", group: "brown", price: 600, bc: 500, mg: 300, rent: [20, 100, 300, 900, 1600, 2500] },
+  { id: "laad", name: "Laad Bazaar, Hyderabad", group: "brown", price: 600, bc: 500, mg: 300, rent: [40, 200, 600, 1800, 3200, 4500] },
+  { id: "mi_road", name: "MI Road, Jaipur", group: "lightBlue", price: 1000, bc: 500, mg: 500, rent: [60, 300, 900, 2700, 4000, 5500] },
+  { id: "hazrat", name: "Hazratganj, Lucknow", group: "lightBlue", price: 1000, bc: 500, mg: 500, rent: [60, 300, 900, 2700, 4000, 5500] },
+  { id: "sec17", name: "Sector 17, Chandigarh", group: "lightBlue", price: 1200, bc: 500, mg: 600, rent: [80, 400, 1000, 3000, 4500, 6000] },
+  { id: "fc_road", name: "FC Road, Pune", group: "pink", price: 1400, bc: 1000, mg: 700, rent: [100, 500, 1500, 4500, 6250, 7500] },
+  { id: "law_g", name: "Law Garden, Ahmedabad", group: "pink", price: 1400, bc: 1000, mg: 700, rent: [100, 500, 1500, 4500, 6250, 7500] },
+  { id: "sarafa", name: "Sarafa Bazaar, Indore", group: "pink", price: 1600, bc: 1000, mg: 800, rent: [120, 600, 1800, 5000, 7000, 9000] },
+  { id: "park_st", name: "Park Street, Kolkata", group: "orange", price: 1800, bc: 1000, mg: 900, rent: [140, 700, 2000, 5500, 7500, 9500] },
+  { id: "comm_st", name: "Commercial St, Bengaluru", group: "orange", price: 1800, bc: 1000, mg: 900, rent: [140, 700, 2000, 5500, 7500, 9500] },
+  { id: "abids", name: "Abids, Hyderabad", group: "orange", price: 2000, bc: 1000, mg: 1000, rent: [160, 800, 2200, 6000, 8000, 10000] },
+  { id: "t_nagar", name: "T Nagar, Chennai", group: "red", price: 2200, bc: 1500, mg: 1100, rent: [180, 900, 2500, 7000, 8750, 10500] },
+  { id: "mg_road", name: "MG Road, Bengaluru", group: "red", price: 2200, bc: 1500, mg: 1100, rent: [180, 900, 2500, 7000, 8750, 10500] },
+  { id: "salt_lk", name: "Salt Lake, Kolkata", group: "red", price: 2400, bc: 1500, mg: 1200, rent: [200, 1000, 3000, 7500, 9250, 11000] },
+  { id: "baga", name: "Baga Beach, Goa", group: "yellow", price: 2600, bc: 1500, mg: 1300, rent: [220, 1100, 3300, 8000, 9750, 11500] },
+  { id: "mall_rd", name: "Mall Road, Shimla", group: "yellow", price: 2600, bc: 1500, mg: 1300, rent: [220, 1100, 3300, 8000, 9750, 11500] },
+  { id: "mg_marg", name: "MG Marg, Darjeeling", group: "yellow", price: 2800, bc: 1500, mg: 1400, rent: [240, 1200, 3600, 8500, 10250, 12000] },
+  { id: "bandra", name: "Bandra West, Mumbai", group: "green", price: 3000, bc: 2000, mg: 1500, rent: [260, 1300, 3900, 9000, 11000, 12750] },
+  { id: "koregaon", name: "Koregaon Park, Pune", group: "green", price: 3000, bc: 2000, mg: 1500, rent: [260, 1300, 3900, 9000, 11000, 12750] },
+  { id: "indira", name: "Indiranagar, Bengaluru", group: "green", price: 3200, bc: 2000, mg: 1600, rent: [280, 1500, 4500, 10000, 12000, 14000] },
+  { id: "cp", name: "Connaught Place, Delhi", group: "darkBlue", price: 3500, bc: 2000, mg: 1750, rent: [350, 1750, 5000, 11000, 13000, 15000] },
+  { id: "marine", name: "Marine Drive, Mumbai", group: "darkBlue", price: 4000, bc: 2000, mg: 2000, rent: [500, 2000, 6000, 14000, 17000, 20000] },
+  { id: "n_rly", name: "Northern Railway", group: "railroad", price: 2000, bc: 0, mg: 1000, rent: [250, 500, 1000, 2000] },
+  { id: "s_rly", name: "Southern Railway", group: "railroad", price: 2000, bc: 0, mg: 1000, rent: [250, 500, 1000, 2000] },
+  { id: "e_rly", name: "Eastern Railway", group: "railroad", price: 2000, bc: 0, mg: 1000, rent: [250, 500, 1000, 2000] },
+  { id: "w_rly", name: "Western Railway", group: "railroad", price: 2000, bc: 0, mg: 1000, rent: [250, 500, 1000, 2000] },
+  { id: "tata", name: "Tata Power", group: "utility", price: 1500, bc: 0, mg: 750, rent: [4, 10] },
+  { id: "jal", name: "Jal Board", group: "utility", price: 1500, bc: 0, mg: 750, rent: [4, 10] },
+];
+
+const GROUP_ORDER = ["brown", "lightBlue", "pink", "orange", "red", "yellow", "green", "darkBlue", "railroad", "utility"];
+
+function calcRent(id, ps) {
+  const p = PROPS.find((x) => x.id === id);
+  const s = ps[id];
+  if (!p || !s || !s.owner || s.isMortgaged) return 0;
+  if (p.group === "railroad") { const o = PROPS.filter((x) => x.group === "railroad" && ps[x.id]?.owner === s.owner && !ps[x.id]?.isMortgaged).length; return p.rent[o - 1] || 250; }
+  if (p.group === "utility") { const o = PROPS.filter((x) => x.group === "utility" && ps[x.id]?.owner === s.owner && !ps[x.id]?.isMortgaged).length; return o === 2 ? 10 : 4; }
+  const h = s.houses || 0;
+  if (h > 0) return p.rent[h];
+  const gp = PROPS.filter((x) => x.group === p.group);
+  const oa = gp.every((x) => ps[x.id]?.owner === s.owner && !ps[x.id]?.isMortgaged);
+  return oa ? p.rent[0] * 2 : p.rent[0];
+}
+
+function canBuild(id, st) {
+  const p = PROPS.find((x) => x.id === id);
+  if (!p || !p.bc) return false;
+  const s = st.properties[id];
+  if (!s?.owner || s.isMortgaged || s.houses >= 5) return false;
+  return PROPS.filter((x) => x.group === p.group).every((g) => st.properties[g.id]?.owner === s.owner && !st.properties[g.id]?.isMortgaged);
+}
+
+const mkState = () => ({
+  screen: "setup", players: [], transactions: [],
+  properties: Object.fromEntries(PROPS.map((p) => [p.id, { owner: null, houses: 0, isMortgaged: false }])),
+  gameStatus: "setup", freeParkingPot: 0, freeParkingEnabled: false, gameStartedAt: null,
+  settings: { startingBalance: STARTING_BALANCE, goSalary: 2000 },
+});
+
+function mktxn(from, to, amount, type, note, meta) {
+  return { id: "t_" + Date.now() + Math.random(), from, to, amount, type, timestamp: Date.now(), note, meta };
+}
+
+function reducer(st, a) {
+  const pl = a.payload;
+  switch (a.type) {
+    case "LOAD_SAVED": return { ...pl };
+    case "NEW_GAME": return mkState();
+    case "ADD_PLAYER": return { ...st, players: [...st.players, { id: "p_" + Date.now(), name: pl.name, token: pl.token, balance: st.settings.startingBalance, isBankrupt: false }] };
+    case "REMOVE_PLAYER": return { ...st, players: st.players.filter((x) => x.id !== pl.id) };
+    case "START_GAME": return { ...st, screen: "game", gameStatus: "playing", gameStartedAt: Date.now() };
+    case "TOGGLE_FREE_PARKING": return { ...st, freeParkingEnabled: !st.freeParkingEnabled };
+    case "COLLECT_FREE_PARKING": { const pot = st.freeParkingPot; if (pot <= 0) return st; return { ...st, players: st.players.map((x) => x.id === pl.playerId ? { ...x, balance: x.balance + pot } : x), freeParkingPot: 0, transactions: [mktxn("freeParking", pl.playerId, pot, "free_parking", "Free Parking jackpot"), ...st.transactions] }; }
+    case "TRANSFER": { const { fromId, toId, amount, note } = pl; return { ...st, players: st.players.map((x) => { if (x.id === fromId) return { ...x, balance: x.balance - amount }; if (x.id === toId) return { ...x, balance: x.balance + amount }; return x; }), transactions: [mktxn(fromId, toId, amount, "transfer", note || "Transfer"), ...st.transactions] }; }
+    case "PAY_BANK": { const { playerId, amount, note } = pl; const isTax = note && (note.includes("Tax") || note.includes("Jail")); return { ...st, players: st.players.map((x) => x.id === playerId ? { ...x, balance: x.balance - amount } : x), freeParkingPot: st.freeParkingPot + (st.freeParkingEnabled && isTax ? amount : 0), transactions: [mktxn(playerId, "bank", amount, "pay_bank", note || "Paid to Bank"), ...st.transactions] }; }
+    case "COLLECT_FROM_BANK": { const { playerId, amount, note } = pl; return { ...st, players: st.players.map((x) => x.id === playerId ? { ...x, balance: x.balance + amount } : x), transactions: [mktxn("bank", playerId, amount, "collect_from_bank", note || "Collected"), ...st.transactions] }; }
+    case "BANKRUPT": { const pr = { ...st.properties }; Object.keys(pr).forEach((k) => { if (pr[k].owner === pl.playerId) pr[k] = { owner: null, houses: 0, isMortgaged: false }; }); return { ...st, players: st.players.map((x) => x.id === pl.playerId ? { ...x, isBankrupt: true, balance: 0 } : x), properties: pr, transactions: [mktxn(pl.playerId, "bank", 0, "bankrupt", "Declared bankruptcy"), ...st.transactions] }; }
+    case "BUY_PROPERTY": { const pr = PROPS.find((x) => x.id === pl.propId); if (!pr) return st; return { ...st, players: st.players.map((x) => x.id === pl.playerId ? { ...x, balance: x.balance - pr.price } : x), properties: { ...st.properties, [pl.propId]: { ...st.properties[pl.propId], owner: pl.playerId } }, transactions: [mktxn(pl.playerId, "bank", pr.price, "buy_property", "Bought " + pr.name, { propId: pl.propId }), ...st.transactions] }; }
+    case "BUILD_HOUSE": { const pr = PROPS.find((x) => x.id === pl.propId); if (!pr || !pr.bc) return st; const h = st.properties[pl.propId]?.houses || 0; if (h >= 5) return st; return { ...st, players: st.players.map((x) => x.id === pl.playerId ? { ...x, balance: x.balance - pr.bc } : x), properties: { ...st.properties, [pl.propId]: { ...st.properties[pl.propId], houses: h + 1 } }, transactions: [mktxn(pl.playerId, "bank", pr.bc, "build_house", "Built on " + pr.name, { propId: pl.propId }), ...st.transactions] }; }
+    case "SELL_HOUSE": { const pr = PROPS.find((x) => x.id === pl.propId); if (!pr || !pr.bc) return st; const h = st.properties[pl.propId]?.houses || 0; if (h <= 0) return st; const r = Math.floor(pr.bc / 2); return { ...st, players: st.players.map((x) => x.id === pl.playerId ? { ...x, balance: x.balance + r } : x), properties: { ...st.properties, [pl.propId]: { ...st.properties[pl.propId], houses: h - 1 } }, transactions: [mktxn("bank", pl.playerId, r, "sell_house", "Sold house on " + pr.name, { propId: pl.propId }), ...st.transactions] }; }
+    case "MORTGAGE_PROPERTY": { const pr = PROPS.find((x) => x.id === pl.propId); if (!pr) return st; return { ...st, players: st.players.map((x) => x.id === pl.playerId ? { ...x, balance: x.balance + pr.mg } : x), properties: { ...st.properties, [pl.propId]: { ...st.properties[pl.propId], isMortgaged: true, houses: 0 } }, transactions: [mktxn("bank", pl.playerId, pr.mg, "mortgage_property", "Mortgaged " + pr.name, { propId: pl.propId }), ...st.transactions] }; }
+    case "UNMORTGAGE_PROPERTY": { const pr = PROPS.find((x) => x.id === pl.propId); if (!pr) return st; const c = Math.floor(pr.mg * 1.1); return { ...st, players: st.players.map((x) => x.id === pl.playerId ? { ...x, balance: x.balance - c } : x), properties: { ...st.properties, [pl.propId]: { ...st.properties[pl.propId], isMortgaged: false } }, transactions: [mktxn(pl.playerId, "bank", c, "unmortgage_property", "Unmortgaged " + pr.name, { propId: pl.propId }), ...st.transactions] }; }
+    case "TRADE_PROPERTY": return { ...st, properties: { ...st.properties, [pl.propId]: { ...st.properties[pl.propId], owner: pl.toId, houses: 0 } }, transactions: [mktxn(pl.fromId, pl.toId, 0, "trade_property", "Traded " + (PROPS.find((x) => x.id === pl.propId)?.name || ""), { propId: pl.propId }), ...st.transactions] };
+    case "UNDO_LAST": {
+      if (!st.transactions.length) return st;
+      const l = st.transactions[0];
+      let pls = [...st.players], prs = { ...st.properties }, pot = st.freeParkingPot;
+      if (l.type === "transfer") { pls = pls.map((x) => { if (x.id === l.from) return { ...x, balance: x.balance + l.amount }; if (x.id === l.to) return { ...x, balance: x.balance - l.amount }; return x; }); }
+      else if (l.type === "pay_bank") { pls = pls.map((x) => x.id === l.from ? { ...x, balance: x.balance + l.amount } : x); if (st.freeParkingEnabled && l.note && (l.note.includes("Tax") || l.note.includes("Jail"))) pot = Math.max(0, pot - l.amount); }
+      else if (l.type === "collect_from_bank") { pls = pls.map((x) => x.id === l.to ? { ...x, balance: x.balance - l.amount } : x); }
+      else if (l.type === "bankrupt") { pls = pls.map((x) => x.id === l.from ? { ...x, isBankrupt: false } : x); }
+      else if (l.type === "buy_property" && l.meta?.propId) { pls = pls.map((x) => x.id === l.from ? { ...x, balance: x.balance + l.amount } : x); prs[l.meta.propId] = { owner: null, houses: 0, isMortgaged: false }; }
+      else if (l.type === "build_house" && l.meta?.propId) { pls = pls.map((x) => x.id === l.from ? { ...x, balance: x.balance + l.amount } : x); prs[l.meta.propId] = { ...prs[l.meta.propId], houses: (prs[l.meta.propId]?.houses || 1) - 1 }; }
+      else if (l.type === "sell_house" && l.meta?.propId) { pls = pls.map((x) => x.id === l.to ? { ...x, balance: x.balance - l.amount } : x); prs[l.meta.propId] = { ...prs[l.meta.propId], houses: (prs[l.meta.propId]?.houses || 0) + 1 }; }
+      else if (l.type === "mortgage_property" && l.meta?.propId) { pls = pls.map((x) => x.id === l.to ? { ...x, balance: x.balance - l.amount } : x); prs[l.meta.propId] = { ...prs[l.meta.propId], isMortgaged: false }; }
+      else if (l.type === "unmortgage_property" && l.meta?.propId) { pls = pls.map((x) => x.id === l.from ? { ...x, balance: x.balance + l.amount } : x); prs[l.meta.propId] = { ...prs[l.meta.propId], isMortgaged: true }; }
+      else if (l.type === "free_parking") { pls = pls.map((x) => x.id === l.to ? { ...x, balance: x.balance - l.amount } : x); pot = l.amount; }
+      return { ...st, players: pls, properties: prs, freeParkingPot: pot, transactions: st.transactions.slice(1) };
+    }
+    default: return st;
+  }
+}
+
+const Ctx = createContext(null);
+
+function Prov({ children }) {
+  const [st, dispatch] = useReducer(reducer, null, mkState);
+  const [loading, setL] = useState(true);
+  const [hasSave, setHS] = useState(false);
+
+  useEffect(() => {
+    const r = storage.get(SAVE_KEY);
+    if (r && r.value) { try { const s = JSON.parse(r.value); if (s.gameStatus === "playing") setHS(true); } catch(e) {} }
+    setL(false);
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (st.gameStatus === "playing") { storage.set(SAVE_KEY, JSON.stringify(st)); }
+  }, [st, loading]);
+
+  const resume = useCallback(() => {
+    const r = storage.get(SAVE_KEY);
+    if (r && r.value) { try { dispatch({ type: "LOAD_SAVED", payload: JSON.parse(r.value) }); setHS(false); } catch(e) {} }
+  }, []);
+
+  const clr = useCallback(() => { storage.del(SAVE_KEY); setHS(false); }, []);
+
+  return (
+    <Ctx.Provider value={{ st, dispatch, loading, hasSave, resume, clr }}>
+      {children}
+    </Ctx.Provider>
+  );
+}
+
+function useG() { const c = useContext(Ctx); if (!c) throw new Error("wrap"); return c; }
+
+function pLabel(pls, id) {
+  if (id === "bank") return "\uD83C\uDFE6 Bank";
+  if (id === "freeParking") return "\uD83C\uDD7F\uFE0F Free Parking";
+  const p = pls.find((x) => x.id === id);
+  return p ? p.token.emoji + " " + p.name : "?";
+}
+
+function PropPanel({ onClose, flash }) {
+  const { st, dispatch } = useG();
+  const [vw, sVw] = useState("board");
+  const [sel, sSel] = useState(null);
+  const [trd, sTrd] = useState(null);
+  const act = st.players.filter((p) => !p.isBankrupt);
+  const prop = sel ? PROPS.find((p) => p.id === sel) : null;
+  const ps = sel ? st.properties[sel] : null;
+  const ow = ps && ps.owner ? st.players.find((p) => p.id === ps.owner) : null;
+  const grp = {};
+  PROPS.forEach((p) => { if (!grp[p.group]) grp[p.group] = []; grp[p.group].push(p); });
+
+  if (sel && prop) {
+    const rent = calcRent(prop.id, st.properties);
+    const isU = prop.group === "utility";
+    const isR = prop.group === "railroad";
+    return (
+      <div style={S.ov} onClick={onClose}><div style={S.mdl} onClick={(e) => e.stopPropagation()}>
+        <div style={S.mhdr}><button onClick={() => { sSel(null); sTrd(null); }} style={S.mcl}>{"\u2190"}</button><h3 style={S.mttl}>{prop.name}</h3><button onClick={onClose} style={S.mcl}>{"\u2715"}</button></div>
+        <div style={{ height: "8px", borderRadius: "4px", background: CG[prop.group]?.color, marginBottom: "16px" }} />
+        <div style={{ ...S.card, padding: "12px", marginBottom: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: "12px", color: "#8faa8f", fontWeight: "700", textTransform: "uppercase" }}>Owner</span><span style={{ fontSize: "14px", fontWeight: "700", color: ow ? "#e8f0e8" : "#5a7a5a" }}>{ow ? ow.token.emoji + " " + ow.name : "Unowned"}</span></div>
+          {ps && ps.isMortgaged && <div style={{ marginTop: "6px", fontSize: "12px", color: "#e85454", fontWeight: "700" }}>{"\u26A0 MORTGAGED"}</div>}
+        </div>
+        <div style={{ ...S.card, padding: "12px", marginBottom: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}><span style={{ color: "#8faa8f", fontSize: "12px" }}>Price</span><span style={{ color: "#FF9933", fontWeight: "800" }}>{fmt(prop.price)}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}><span style={{ color: "#8faa8f", fontSize: "12px" }}>Rent</span><span style={{ color: "#138808", fontWeight: "800" }}>{isU ? rent + "\u00D7 dice" : fmt(rent)}</span></div>
+          {!isU && !isR && <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "8px", marginTop: "4px" }}>{["Base", "1H", "2H", "3H", "4H", "Hotel"].map((l, i) => ( <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: "12px" }}><span style={{ color: (ps?.houses || 0) === i ? "#FF9933" : "#5a7a5a" }}>{(ps?.houses || 0) === i ? "\u25BA " : ""}{l}</span><span style={{ color: (ps?.houses || 0) === i ? "#FF9933" : "#8faa8f", fontWeight: "600" }}>{fmt(prop.rent[i])}</span></div> ))}</div>}
+          {isR && <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "8px", marginTop: "4px" }}>{["1 Rly", "2 Rly", "3 Rly", "4 Rly"].map((l, i) => ( <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: "12px" }}><span style={{ color: "#8faa8f" }}>{l}</span><span style={{ color: "#8faa8f", fontWeight: "600" }}>{fmt(prop.rent[i])}</span></div> ))}</div>}
+          <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "6px", marginTop: "6px" }}><span style={{ color: "#8faa8f", fontSize: "12px" }}>Mortgage</span><span style={{ color: "#e8f0e8", fontWeight: "700" }}>{fmt(prop.mg)}</span></div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {!ow && <div><p style={{ ...S.mlbl, marginBottom: "8px" }}>Buy for:</p><div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "8px" }}>{act.map((p) => ( <button key={p.id} onClick={() => { if (p.balance < prop.price) { flash("Can't afford!", "error"); return; } dispatch({ type: "BUY_PROPERTY", payload: { playerId: p.id, propId: prop.id } }); flash(p.token.emoji + " bought " + prop.name); }} style={{ ...S.mpb, ...(p.balance < prop.price ? { opacity: 0.4 } : {}) }}><span style={{ fontSize: "18px" }}>{p.token.emoji}</span><span style={S.mpn}>{p.name}</span><span style={S.mpp}>{fmt(p.balance)}</span></button> ))}</div></div>}
+          {ow && canBuild(prop.id, st) && <button onClick={() => { if (ow.balance < prop.bc) { flash("Can't afford!", "error"); return; } dispatch({ type: "BUILD_HOUSE", payload: { playerId: ow.id, propId: prop.id } }); flash("Built on " + prop.name); }} style={{ ...S.abw, ...S.acol }}>{"\uD83C\uDFE0 Build (" + fmt(prop.bc) + ")"}</button>}
+          {ow && (ps?.houses || 0) > 0 && <button onClick={() => { dispatch({ type: "SELL_HOUSE", payload: { playerId: ow.id, propId: prop.id } }); flash("Sold +" + fmt(Math.floor(prop.bc / 2))); }} style={{ ...S.abw, ...S.apay }}>{"Sell House (+" + fmt(Math.floor(prop.bc / 2)) + ")"}</button>}
+          {ow && !ps?.isMortgaged && (ps?.houses || 0) === 0 && <button onClick={() => { dispatch({ type: "MORTGAGE_PROPERTY", payload: { playerId: ow.id, propId: prop.id } }); flash("Mortgaged"); }} style={{ ...S.abw, ...S.aund }}>{"Mortgage (+" + fmt(prop.mg) + ")"}</button>}
+          {ow && ps?.isMortgaged && <button onClick={() => { const c = Math.floor(prop.mg * 1.1); if (ow.balance < c) { flash("Can't afford!", "error"); return; } dispatch({ type: "UNMORTGAGE_PROPERTY", payload: { playerId: ow.id, propId: prop.id } }); flash("Unmortgaged"); }} style={{ ...S.abw, ...S.atr }}>{"Unmortgage (-" + fmt(Math.floor(prop.mg * 1.1)) + ")"}</button>}
+          {ow && <div><button onClick={() => sTrd(trd ? null : "o")} style={{ ...S.abw, ...S.atr }}>{"\u2194 Trade"}</button>{trd && <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "8px", marginTop: "8px" }}>{act.filter((p) => p.id !== ow.id).map((p) => ( <button key={p.id} onClick={() => { dispatch({ type: "TRADE_PROPERTY", payload: { fromId: ow.id, toId: p.id, propId: prop.id } }); flash("Traded to " + p.name); sTrd(null); }} style={S.mpb}><span style={{ fontSize: "18px" }}>{p.token.emoji}</span><span style={S.mpn}>{p.name}</span></button> ))}</div>}</div>}
+        </div>
+      </div></div>
+    );
+  }
+
+  return (
+    <div style={S.ov} onClick={onClose}><div style={S.mdl} onClick={(e) => e.stopPropagation()}>
+      <div style={S.mhdr}><h3 style={S.mttl}>{"\uD83C\uDFD8\uFE0F Properties"}</h3><button onClick={onClose} style={S.mcl}>{"\u2715"}</button></div>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}><button onClick={() => sVw("board")} style={{ ...S.tab, ...(vw === "board" ? S.tabA : {}) }}>By Color</button><button onClick={() => sVw("player")} style={{ ...S.tab, ...(vw === "player" ? S.tabA : {}) }}>By Player</button></div>
+      {vw === "board" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>{GROUP_ORDER.map((gk) => ( <div key={gk}><div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}><div style={{ width: "12px", height: "12px", borderRadius: "3px", background: CG[gk].color }} /><span style={{ fontSize: "11px", fontWeight: "700", color: "#8faa8f", textTransform: "uppercase" }}>{CG[gk].name}</span></div>{(grp[gk] || []).map((p) => { const s = st.properties[p.id]; const o = s?.owner ? st.players.find((x) => x.id === s.owner) : null; return ( <button key={p.id} onClick={() => sSel(p.id)} style={S.prw}><div style={{ width: "4px", borderRadius: "2px", background: CG[gk].color, position: "absolute", left: 0, top: 0, bottom: 0 }} /><div style={{ flex: 1 }}><div style={{ fontSize: "13px", fontWeight: "600", color: s?.isMortgaged ? "#5a7a5a" : "#e8f0e8" }}>{p.name}</div><div style={{ fontSize: "11px", color: "#5a7a5a" }}>{fmt(p.price)}{o ? " \u00B7 " + o.token.emoji : ""}{s?.houses > 0 ? " \u00B7 " + (s.houses === 5 ? "\uD83C\uDFE8" : "\uD83C\uDFE0".repeat(s.houses)) : ""}</div></div><span style={{ fontSize: "12px", color: "#5a7a5a" }}>{"\u203A"}</span></button> ); })}</div> ))}</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>{act.map((player) => { const owned = PROPS.filter((p) => st.properties[p.id]?.owner === player.id); return ( <div key={player.id}><div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}><span style={{ fontSize: "18px" }}>{player.token.emoji}</span><span style={{ fontSize: "14px", fontWeight: "700", color: "#e8f0e8" }}>{player.name}</span><span style={{ fontSize: "11px", color: "#5a7a5a" }}>({owned.length})</span></div>{owned.length === 0 ? <div style={{ fontSize: "12px", color: "#5a7a5a", paddingLeft: "26px" }}>No properties</div> : owned.map((p) => { const s = st.properties[p.id]; return ( <button key={p.id} onClick={() => sSel(p.id)} style={S.prw}><div style={{ width: "4px", borderRadius: "2px", background: CG[p.group]?.color, position: "absolute", left: 0, top: 0, bottom: 0 }} /><div style={{ flex: 1 }}><div style={{ fontSize: "13px", fontWeight: "600", color: "#e8f0e8" }}>{p.name}</div><div style={{ fontSize: "11px", color: "#5a7a5a" }}>{s?.isMortgaged ? "Mortgaged" : "Rent: " + fmt(calcRent(p.id, st.properties))}</div></div><span style={{ fontSize: "12px", color: "#5a7a5a" }}>{"\u203A"}</span></button> ); })}</div> ); })}</div>
+      )}
+    </div></div>
+  );
+}
+
+function Stats({ onClose }) {
+  const { st } = useG();
+  const act = st.players.filter((p) => !p.isBankrupt);
+  function nw(p) { let t = p.balance; PROPS.forEach((pr) => { const s = st.properties[pr.id]; if (s?.owner === p.id) { t += s.isMortgaged ? 0 : pr.price; t += (s.houses || 0) * (pr.bc || 0); } }); return t; }
+  const ranked = [...act].sort((a, b) => nw(b) - nw(a));
+  const el = st.gameStartedAt ? Date.now() - st.gameStartedAt : 0;
+  const mn = Math.floor(el / 60000);
+  const ts = Math.floor(mn / 60) > 0 ? Math.floor(mn / 60) + "h " + (mn % 60) + "m" : mn + "m";
+  return (
+    <div style={S.ov} onClick={onClose}><div style={S.mdl} onClick={(e) => e.stopPropagation()}>
+      <div style={S.mhdr}><h3 style={S.mttl}>{"\uD83D\uDCCA Stats"}</h3><button onClick={onClose} style={S.mcl}>{"\u2715"}</button></div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "8px", marginBottom: "16px" }}>{[{ l: "Time", v: ts }, { l: "Txns", v: st.transactions.length }, { l: "Properties", v: PROPS.filter((p) => st.properties[p.id]?.owner).length + "/" + PROPS.length }, { l: "Free Parking", v: st.freeParkingEnabled ? fmt(st.freeParkingPot) : "Off" }].map((x, i) => ( <div key={i} style={{ background: "rgba(0,0,0,0.2)", borderRadius: "10px", padding: "10px", textAlign: "center" }}><div style={{ fontSize: "10px", color: "#5a7a5a", fontWeight: "700", textTransform: "uppercase" }}>{x.l}</div><div style={{ fontSize: "18px", fontWeight: "800", color: "#FF9933", marginTop: "4px" }}>{x.v}</div></div> ))}</div>
+      <h4 style={{ ...S.cttl, marginBottom: "10px" }}>Wealth Rankings</h4>
+      {ranked.map((p, i) => { const n = nw(p); const mx = nw(ranked[0]) || 1; return ( <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" }}><span style={{ fontSize: "16px", fontWeight: "800", color: i === 0 ? "#FF9933" : "#5a7a5a", width: "24px", textAlign: "center" }}>{i === 0 ? "\uD83D\uDC51" : "#" + (i + 1)}</span><span style={{ fontSize: "22px" }}>{p.token.emoji}</span><div style={{ flex: 1 }}><div style={{ fontSize: "14px", fontWeight: "600", color: "#e8f0e8" }}>{p.name}</div><div style={{ height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.06)", marginTop: "4px" }}><div style={{ height: "100%", borderRadius: "2px", background: i === 0 ? "#FF9933" : "#138808", width: (n / mx * 100) + "%" }} /></div></div><div style={{ textAlign: "right" }}><div style={{ fontSize: "16px", fontWeight: "800", color: "#FF9933" }}>{fmt(n)}</div></div></div> ); })}
+    </div></div>
+  );
+}
+
+function Setup() {
+  const { st, dispatch, hasSave, resume, clr } = useG();
+  const [n, sN] = useState(""); const [tk, sTk] = useState(null); const [er, sEr] = useState(""); const [sett, sSett] = useState(false);
+  const taken = st.players.map((p) => p.token.id); const avail = TOKENS.filter((t) => !taken.includes(t.id));
+  const canS = st.players.length >= MIN_PLAYERS; const canA = st.players.length < MAX_PLAYERS;
+  function add() { const nm = n.trim(); if (!nm) { sEr("Enter a name"); return; } if (!tk) { sEr("Pick a token"); return; } if (st.players.some((p) => p.name.toLowerCase() === nm.toLowerCase())) { sEr("Name taken"); return; } dispatch({ type: "ADD_PLAYER", payload: { name: nm, token: tk } }); sN(""); sTk(null); sEr(""); }
+  return (
+    <div style={S.ctr}>
+      <div style={S.hdr}><div style={S.logo}>{"\uD83C\uDFE6"}</div><h1 style={S.ttl}>MONOPOLY</h1><h2 style={S.sub}>INDIA \u00B7 DIGITAL BANKER</h2><p style={S.tag}>Ab paisa ginna bandh, khel shuru karo!</p></div>
+      {hasSave && <div style={{ ...S.card, borderColor: "rgba(76,175,80,0.4)", marginBottom: "16px" }}><div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}><span style={{ fontSize: "20px" }}>{"\uD83D\uDCBE"}</span><div><div style={{ fontSize: "14px", fontWeight: "700", color: "#4caf50" }}>Saved Game Found</div></div></div><div style={{ display: "flex", gap: "8px" }}><button onClick={resume} style={{ ...S.pri, marginBottom: 0, flex: 2, background: "linear-gradient(135deg,#4caf50,#388e3c)" }}>Continue {"\u2192"}</button><button onClick={clr} style={{ ...S.sec, flex: 1 }}>Discard</button></div></div>}
+      {canA && <div style={S.card}><h3 style={S.cttl}>Add Player ({st.players.length}/{MAX_PLAYERS})</h3><input type="text" placeholder="Player name" value={n} onChange={(e) => { sN(e.target.value); sEr(""); }} onKeyDown={(e) => e.key === "Enter" && add()} style={S.inp} maxLength={16} /><div style={S.tkg}>{avail.map((t) => ( <button key={t.id} onClick={() => { sTk(t); sEr(""); }} style={{ ...S.tkb, ...(tk?.id === t.id ? S.tkba : {}) }}><span style={S.tke}>{t.emoji}</span><span style={S.tkl}>{t.label}</span></button> ))}</div>{er && <p style={S.err}>{er}</p>}<button onClick={add} style={S.addB}>+ Add Player</button></div>}
+      {st.players.length > 0 && <div style={S.card}><h3 style={S.cttl}>Players</h3>{st.players.map((p, i) => ( <div key={p.id} style={S.prow}><div style={S.pinf}><span style={S.pidx}>{i + 1}</span><span style={{ fontSize: "26px" }}>{p.token.emoji}</span><div><div style={S.pnm}>{p.name}</div><div style={S.pbl}>{fmt(p.balance)}</div></div></div><button onClick={() => dispatch({ type: "REMOVE_PLAYER", payload: { id: p.id } })} style={S.rmb}>{"\u2715"}</button></div> ))}</div>}
+      <button onClick={() => sSett(!sett)} style={{ ...S.sec, marginBottom: "12px", width: "100%", textAlign: "center" }}>{"\u2699 Settings " + (sett ? "\u25B2" : "\u25BC")}</button>
+      {sett && <div style={{ ...S.card, marginBottom: "12px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ fontSize: "14px", fontWeight: "600", color: "#e8f0e8" }}>{"\uD83C\uDD7F\uFE0F Free Parking Pot"}</div></div><button onClick={() => dispatch({ type: "TOGGLE_FREE_PARKING" })} style={{ width: "52px", height: "28px", borderRadius: "14px", border: "none", cursor: "pointer", background: st.freeParkingEnabled ? "#4caf50" : "rgba(255,255,255,0.1)", position: "relative" }}><div style={{ width: "22px", height: "22px", borderRadius: "11px", background: "#fff", position: "absolute", top: "3px", left: st.freeParkingEnabled ? "27px" : "3px", transition: "left 0.2s" }} /></button></div></div>}
+      <button onClick={() => canS && dispatch({ type: "START_GAME" })} disabled={!canS} style={{ ...S.pri, ...(!canS ? S.priOff : {}) }}>{canS ? "Start Game \u2192" : "Need " + (MIN_PLAYERS - st.players.length) + " more"}</button>
+      <p style={S.ftr}>Each player starts with {fmt(STARTING_BALANCE)}</p>
+    </div>
+  );
+}
+
+function Game() {
+  const { st, dispatch, clr } = useG();
+  const [md, sMd] = useState(null); const [sp, sSp] = useState(null); const [tp, sTp] = useState(null); const [am, sAm] = useState(""); const [nt, sNt] = useState(""); const [cf, sCf] = useState(null); const [toast, sToast] = useState(null); const [mn, sMn] = useState(false);
+  const act = st.players.filter((p) => !p.isBankrupt); const bk = st.players.filter((p) => p.isBankrupt);
+  function fl(m, t) { sToast({ message: m, type: t || "success" }); setTimeout(() => sToast(null), 2500); }
+  function cl() { sMd(null); sSp(null); sTp(null); sAm(""); sNt(""); sCf(null); }
+  function ex() { const a = parseInt(am); if (!a || a <= 0) return; if (md === "transfer") { if (!sp || !tp) return; if (sp.balance < a) { fl("Insufficient!", "error"); return; } dispatch({ type: "TRANSFER", payload: { fromId: sp.id, toId: tp.id, amount: a, note: nt || "Rent/Trade" } }); fl(sp.token.emoji + " \u2192 " + fmt(a) + " \u2192 " + tp.token.emoji); } else if (md === "pay") { if (!sp) return; if (sp.balance < a) { fl("Insufficient!", "error"); return; } dispatch({ type: "PAY_BANK", payload: { playerId: sp.id, amount: a, note: nt || "Bank payment" } }); fl(sp.token.emoji + " paid " + fmt(a)); } else if (md === "collect") { if (!sp) return; dispatch({ type: "COLLECT_FROM_BANK", payload: { playerId: sp.id, amount: a, note: nt || "Collection" } }); fl(sp.token.emoji + " collected " + fmt(a)); } cl(); }
+  function qp(cp) { if (!sp) { fl("Select player first", "error"); return; } if (cp.type === "pay") { if (sp.balance < cp.amount) { fl("Insufficient!", "error"); return; } dispatch({ type: "PAY_BANK", payload: { playerId: sp.id, amount: cp.amount, note: cp.note } }); } else { dispatch({ type: "COLLECT_FROM_BANK", payload: { playerId: sp.id, amount: cp.amount, note: cp.note } }); } fl(sp.token.emoji + " " + (cp.type === "pay" ? "paid" : "collected") + " " + fmt(cp.amount)); sSp(null); }
+  const go = act.length <= 1 && bk.length > 0;
+  const pc = (id) => PROPS.filter((p) => st.properties[p.id]?.owner === id).length;
+
+  return (
+    <div style={S.ctr}>
+      {toast && <div style={{ ...S.tst, ...(toast.type === "error" ? S.tse : {}) }}>{toast.message}</div>}
+      {cf && <div style={S.ov} onClick={() => sCf(null)}><div style={S.cfb} onClick={(e) => e.stopPropagation()}><p style={S.cft}>{cf.message}</p><div style={S.cfbs}><button onClick={() => sCf(null)} style={S.cfc}>Cancel</button><button onClick={cf.onConfirm} style={S.cfy}>Confirm</button></div></div></div>}
+      <div style={S.gh}><div style={S.ghl}><span style={{ fontSize: "24px" }}>{"\uD83C\uDFE6"}</span><div><h1 style={S.gt}>MONOPOLY INDIA</h1><p style={S.gm}>{act.length} active \u00B7 {st.transactions.length} txns</p></div></div><div style={{ display: "flex", gap: "6px" }}><button onClick={() => sMd("properties")} style={S.hb}>{"\uD83C\uDFD8\uFE0F"}</button><button onClick={() => sMd("stats")} style={S.hb}>{"\uD83D\uDCCA"}</button><button onClick={() => sMd("history")} style={S.hb}>{"\uD83D\uDCCB"}</button><button onClick={() => sMn(!mn)} style={S.hb}>{"\u22EE"}</button></div></div>
+      {mn && <div style={{ position: "relative", zIndex: 50 }}><div style={{ position: "absolute", right: 0, top: "-4px", background: "#142e1e", border: "1px solid rgba(255,153,51,0.2)", borderRadius: "12px", padding: "4px", minWidth: "160px", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}><button onClick={() => { sCf({ message: "Start new game?", onConfirm: () => { clr(); dispatch({ type: "NEW_GAME" }); sCf(null); } }); sMn(false); }} style={{ ...S.mi, color: "#e85454" }}>{"\uD83D\uDD04 New Game"}</button><button onClick={() => sMn(false)} style={S.mi}>{"\u2715 Close"}</button></div></div>}
+      {go && <div style={S.wb}><span style={{ fontSize: "28px" }}>{act[0]?.token.emoji}</span><div><div style={S.wl}>{"\uD83C\uDFC6 WINNER!"}</div><div style={S.wn}>{act[0]?.name} \u2014 {fmt(act[0]?.balance)}</div></div></div>}
+      <div style={S.bg}>{act.map((p) => ( <button key={p.id} onClick={() => sSp(sp?.id === p.id ? null : p)} style={{ ...S.bc, ...(sp?.id === p.id ? S.bca : {}) }}><div style={S.btr}><span style={S.be}>{p.token.emoji}</span>{sp?.id === p.id && <span style={S.sb}>{"\u2713"}</span>}</div><div style={S.bn}>{p.name}</div><div style={S.ba}>{fmt(p.balance)}</div>{pc(p.id) > 0 && <div style={{ fontSize: "10px", color: "#5a7a5a", marginTop: "2px" }}>{pc(p.id)} props</div>}</button> ))}</div>
+      {bk.length > 0 && <div style={S.bks}>{bk.map((p) => <span key={p.id} style={S.bkb}>{p.token.emoji} {p.name} \u2014 BANKRUPT</span>)}</div>}
+      {sp && <div style={S.card}><h3 style={S.cttl}>Quick \u2014 {sp.token.emoji} {sp.name}</h3><div style={S.qg}>{COMMON_PAYMENTS.map((cp, i) => ( <button key={i} onClick={() => qp(cp)} style={{ ...S.qb, ...(cp.type === "collect" ? S.qcl : S.qpy) }}><span style={S.ql}>{cp.label}</span><span style={S.qa}>{(cp.type === "pay" ? "-" : "+") + fmt(cp.amount)}</span></button> ))}{st.freeParkingEnabled && st.freeParkingPot > 0 && <button onClick={() => { dispatch({ type: "COLLECT_FREE_PARKING", payload: { playerId: sp.id } }); fl("Collected " + fmt(st.freeParkingPot) + "!"); sSp(null); }} style={{ ...S.qb, background: "rgba(100,149,237,0.1)", borderColor: "rgba(100,149,237,0.3)", color: "#6495ed" }}><span style={S.ql}>Free Parking</span><span style={S.qa}>+{fmt(st.freeParkingPot)}</span></button>}<button onClick={() => sCf({ message: "Declare " + sp.name + " bankrupt?", onConfirm: () => { dispatch({ type: "BANKRUPT", payload: { playerId: sp.id } }); fl("Bankrupt!", "error"); sCf(null); sSp(null); } })} style={{ ...S.qb, ...S.qbk }}><span style={S.ql}>Bankrupt</span><span style={S.qa}>{"\u2620\uFE0F"}</span></button></div></div>}
+      <div style={S.card}><h3 style={S.cttl}>Transactions</h3><div style={S.ag}><button onClick={() => { sMd("transfer"); sSp(null); sTp(null); sAm(""); sNt(""); }} style={{ ...S.ab, ...S.atr }}><span style={S.ai}>{"\u2194"}</span><span style={S.al}>Transfer</span></button><button onClick={() => { sMd("pay"); sSp(null); sAm(""); sNt(""); }} style={{ ...S.ab, ...S.apay }}><span style={S.ai}>{"\u2191"}</span><span style={S.al}>Pay Bank</span></button><button onClick={() => { sMd("collect"); sSp(null); sAm(""); sNt(""); }} style={{ ...S.ab, ...S.acol }}><span style={S.ai}>{"\u2193"}</span><span style={S.al}>Collect</span></button><button onClick={() => { if (st.transactions.length > 0) { dispatch({ type: "UNDO_LAST" }); fl("Undone"); } }} disabled={!st.transactions.length} style={{ ...S.ab, ...S.aund, ...(!st.transactions.length ? { opacity: 0.3 } : {}) }}><span style={S.ai}>{"\u21A9"}</span><span style={S.al}>Undo</span></button></div></div>
+      {(md === "transfer" || md === "pay" || md === "collect") && ( <div style={S.ov} onClick={cl}><div style={S.mdl} onClick={(e) => e.stopPropagation()}><div style={S.mhdr}><h3 style={S.mttl}>{md === "transfer" ? "\u2194 Transfer" : md === "pay" ? "\u2191 Pay Bank" : "\u2193 Collect"}</h3><button onClick={cl} style={S.mcl}>{"\u2715"}</button></div><div style={S.msec}><p style={S.mlbl}>{md === "transfer" ? "From:" : md === "pay" ? "Who pays:" : "Who collects:"}</p><div style={S.mpg}>{act.map((p) => ( <button key={p.id} onClick={() => { sSp(p); if (tp?.id === p.id) sTp(null); }} style={{ ...S.mpb, ...(sp?.id === p.id ? S.mpa : {}) }}><span style={{ fontSize: "20px" }}>{p.token.emoji}</span><span style={S.mpn}>{p.name}</span><span style={S.mpp}>{fmt(p.balance)}</span></button> ))}</div></div>{md === "transfer" && sp && <div style={S.msec}><p style={S.mlbl}>To:</p><div style={S.mpg}>{act.filter((p) => p.id !== sp.id).map((p) => ( <button key={p.id} onClick={() => sTp(p)} style={{ ...S.mpb, ...(tp?.id === p.id ? S.mpa : {}) }}><span style={{ fontSize: "20px" }}>{p.token.emoji}</span><span style={S.mpn}>{p.name}</span><span style={S.mpp}>{fmt(p.balance)}</span></button> ))}</div></div>}{sp && (md !== "transfer" || tp) && <div style={S.msec}><p style={S.mlbl}>Amount:</p><input type="number" placeholder={"\u20B90"} value={am} onChange={(e) => sAm(e.target.value)} style={S.ami} autoFocus /><div style={S.qag}>{QUICK_AMOUNTS.map((q) => ( <button key={q} onClick={() => sAm(String(q))} style={{ ...S.qab, ...(am === String(q) ? S.qaA : {}) }}>{fmt(q)}</button> ))}</div><input type="text" placeholder="Note (optional)" value={nt} onChange={(e) => sNt(e.target.value)} style={{ ...S.inp, marginTop: "10px", marginBottom: "0" }} maxLength={40} /></div>}<button onClick={ex} disabled={!am || parseInt(am) <= 0 || !sp || (md === "transfer" && !tp)} style={{ ...S.pri, marginTop: "16px", ...(!am || parseInt(am) <= 0 ? S.priOff : {}) }}>{md === "transfer" ? "Pay " + fmt(am || 0) + " \u2192 " + (tp?.name || "...") : md === "pay" ? "Pay " + fmt(am || 0) : "Collect " + fmt(am || 0)}</button></div></div> )}
+      {md === "history" && ( <div style={S.ov} onClick={cl}><div style={S.mdl} onClick={(e) => e.stopPropagation()}><div style={S.mhdr}><h3 style={S.mttl}>{"\uD83D\uDCCB History"}</h3><button onClick={cl} style={S.mcl}>{"\u2715"}</button></div><div style={S.hl}>{!st.transactions.length ? <p style={S.he}>No transactions yet</p> : st.transactions.map((t) => ( <div key={t.id} style={S.hi}><div style={S.ht}><span style={S.hp}>{pLabel(st.players, t.from)} {"\u2192"} {pLabel(st.players, t.to)}</span><span style={S.ha}>{fmt(t.amount)}</span></div><div style={S.hbt}><span style={S.hn}>{t.note}</span><span style={S.htm}>{new Date(t.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div></div> ))}</div></div></div> )}
+      {md === "properties" && <PropPanel onClose={cl} flash={fl} />}
+      {md === "stats" && <Stats onClose={cl} />}
+    </div>
+  );
+}
+
+const S = {
+  ctr: { minHeight: "100vh", background: "linear-gradient(145deg,#0a1f14 0%,#0d2818 40%,#122d1c 100%)", padding: "16px", fontFamily: "'Trebuchet MS','Segoe UI',sans-serif", maxWidth: "480px", margin: "0 auto", color: "#e8f0e8", position: "relative" },
+  hdr: { textAlign: "center", marginBottom: "28px", paddingTop: "12px" }, logo: { fontSize: "48px", marginBottom: "8px" },
+  ttl: { fontSize: "32px", fontWeight: "800", letterSpacing: "6px", color: "#FF9933", margin: 0, textShadow: "0 2px 8px rgba(255,153,51,0.2)" },
+  sub: { fontSize: "13px", fontWeight: "600", letterSpacing: "4px", color: "#8faa8f", margin: "4px 0 0" },
+  tag: { fontSize: "13px", color: "#5a7a5a", marginTop: "10px", fontStyle: "italic" },
+  card: { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,153,51,0.15)", borderRadius: "14px", padding: "16px", marginBottom: "14px" },
+  cttl: { fontSize: "12px", fontWeight: "700", letterSpacing: "1.5px", color: "#8faa8f", textTransform: "uppercase", margin: "0 0 12px" },
+  inp: { width: "100%", padding: "14px 16px", fontSize: "16px", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,153,51,0.2)", borderRadius: "10px", color: "#e8f0e8", outline: "none", boxSizing: "border-box", marginBottom: "14px" },
+  tkg: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "8px", marginBottom: "14px" },
+  tkb: { display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", padding: "10px 4px", background: "rgba(0,0,0,0.25)", border: "1.5px solid rgba(255,255,255,0.08)", borderRadius: "10px", cursor: "pointer", color: "#8faa8f" },
+  tkba: { background: "rgba(255,153,51,0.15)", borderColor: "#FF9933", color: "#FF9933", transform: "scale(1.05)" },
+  tke: { fontSize: "22px" }, tkl: { fontSize: "10px", fontWeight: "600" },
+  err: { color: "#e85454", fontSize: "13px", margin: "0 0 10px", padding: "8px 12px", background: "rgba(232,84,84,0.1)", borderRadius: "8px", border: "1px solid rgba(232,84,84,0.2)" },
+  addB: { width: "100%", padding: "14px", fontSize: "15px", fontWeight: "700", background: "rgba(255,153,51,0.12)", border: "1.5px solid rgba(255,153,51,0.35)", borderRadius: "10px", color: "#FF9933", cursor: "pointer" },
+  prow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 8px", borderRadius: "10px" },
+  pinf: { display: "flex", alignItems: "center", gap: "12px" }, pidx: { fontSize: "12px", fontWeight: "700", color: "#5a7a5a", width: "18px" },
+  pnm: { fontSize: "16px", fontWeight: "600", color: "#e8f0e8" }, pbl: { fontSize: "13px", color: "#FF9933", fontWeight: "600" },
+  rmb: { width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(232,84,84,0.1)", border: "1px solid rgba(232,84,84,0.2)", borderRadius: "8px", color: "#e85454", cursor: "pointer", fontSize: "14px" },
+  pri: { width: "100%", padding: "18px", fontSize: "17px", fontWeight: "800", background: "linear-gradient(135deg,#FF9933 0%,#e68a2e 100%)", border: "none", borderRadius: "12px", color: "#0a1f14", cursor: "pointer", letterSpacing: "1px", boxShadow: "0 4px 20px rgba(255,153,51,0.25)", marginBottom: "12px" },
+  priOff: { background: "rgba(255,255,255,0.06)", color: "#5a7a5a", boxShadow: "none", cursor: "default" },
+  sec: { padding: "12px", fontSize: "13px", fontWeight: "700", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "10px", color: "#8faa8f", cursor: "pointer" },
+  ftr: { textAlign: "center", fontSize: "12px", color: "#5a7a5a", margin: 0 },
+  gh: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", marginBottom: "16px" },
+  ghl: { display: "flex", alignItems: "center", gap: "10px" }, gt: { fontSize: "14px", fontWeight: "800", letterSpacing: "2px", color: "#FF9933", margin: 0 }, gm: { fontSize: "11px", color: "#5a7a5a", margin: 0 },
+  hb: { width: "36px", height: "36px", borderRadius: "10px", border: "1px solid rgba(255,153,51,0.2)", background: "rgba(0,0,0,0.3)", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  bg: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "10px", marginBottom: "14px" },
+  bc: { background: "rgba(255,255,255,0.04)", border: "1.5px solid rgba(255,255,255,0.08)", borderRadius: "14px", padding: "14px", cursor: "pointer", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" },
+  bca: { borderColor: "#FF9933", background: "rgba(255,153,51,0.1)", boxShadow: "0 0 20px rgba(255,153,51,0.12)" },
+  btr: { display: "flex", alignItems: "center", gap: "6px" }, be: { fontSize: "28px" },
+  sb: { fontSize: "11px", fontWeight: "800", color: "#0a1f14", background: "#FF9933", borderRadius: "50%", width: "18px", height: "18px", display: "flex", alignItems: "center", justifyContent: "center" },
+  bn: { fontSize: "13px", fontWeight: "600", color: "#c0d0c0" }, ba: { fontSize: "20px", fontWeight: "800", color: "#FF9933" },
+  bks: { display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px" }, bkb: { fontSize: "11px", padding: "6px 10px", background: "rgba(232,84,84,0.1)", border: "1px solid rgba(232,84,84,0.2)", borderRadius: "8px", color: "#e85454" },
+  ag: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "8px" },
+  ab: { display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", padding: "12px 4px", borderRadius: "12px", border: "1.5px solid transparent", cursor: "pointer", fontSize: "inherit" },
+  abw: { display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "12px", borderRadius: "12px", border: "1.5px solid transparent", cursor: "pointer", fontSize: "14px", fontWeight: "700", width: "100%" },
+  atr: { background: "rgba(100,149,237,0.12)", borderColor: "rgba(100,149,237,0.3)", color: "#6495ed" },
+  apay: { background: "rgba(232,84,84,0.1)", borderColor: "rgba(232,84,84,0.25)", color: "#e85454" },
+  acol: { background: "rgba(19,136,8,0.12)", borderColor: "rgba(19,136,8,0.3)", color: "#138808" },
+  aund: { background: "rgba(255,255,255,0.05)", borderColor: "rgba(255,255,255,0.1)", color: "#8faa8f" },
+  ai: { fontSize: "20px", fontWeight: "800" }, al: { fontSize: "11px", fontWeight: "700" },
+  qg: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "8px" },
+  qb: { display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", padding: "10px 6px", borderRadius: "10px", border: "1px solid transparent", cursor: "pointer" },
+  qcl: { background: "rgba(19,136,8,0.1)", borderColor: "rgba(19,136,8,0.2)", color: "#138808" },
+  qpy: { background: "rgba(232,84,84,0.08)", borderColor: "rgba(232,84,84,0.2)", color: "#e85454" },
+  qbk: { background: "rgba(232,84,84,0.15)", borderColor: "rgba(232,84,84,0.35)", color: "#e85454" },
+  ql: { fontSize: "11px", fontWeight: "700" }, qa: { fontSize: "14px", fontWeight: "800" },
+  wb: { display: "flex", alignItems: "center", gap: "12px", padding: "16px", background: "linear-gradient(135deg,rgba(255,153,51,0.2),rgba(19,136,8,0.1))", border: "1.5px solid #FF9933", borderRadius: "14px", marginBottom: "14px" },
+  wl: { fontSize: "11px", fontWeight: "800", letterSpacing: "2px", color: "#FF9933" }, wn: { fontSize: "16px", fontWeight: "700", color: "#e8f0e8" },
+  tst: { position: "fixed", top: "20px", left: "50%", transform: "translateX(-50%)", padding: "12px 20px", background: "rgba(19,136,8,0.95)", color: "#fff", borderRadius: "10px", fontSize: "14px", fontWeight: "600", zIndex: 1000, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", maxWidth: "340px", textAlign: "center" },
+  tse: { background: "rgba(232,84,84,0.95)" },
+  ov: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100, backdropFilter: "blur(4px)" },
+  mdl: { width: "100%", maxWidth: "480px", maxHeight: "85vh", overflowY: "auto", background: "linear-gradient(180deg,#142e1e 0%,#0d2818 100%)", borderRadius: "20px 20px 0 0", padding: "20px 16px 32px", border: "1px solid rgba(255,153,51,0.15)", borderBottom: "none" },
+  mhdr: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" },
+  mttl: { fontSize: "18px", fontWeight: "800", color: "#FF9933", margin: 0 },
+  mcl: { width: "36px", height: "36px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#8faa8f", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  msec: { marginBottom: "16px" }, mlbl: { fontSize: "12px", fontWeight: "700", color: "#8faa8f", letterSpacing: "1px", textTransform: "uppercase", margin: "0 0 8px" },
+  mpg: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "8px" },
+  mpb: { display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", padding: "10px", background: "rgba(0,0,0,0.25)", border: "1.5px solid rgba(255,255,255,0.08)", borderRadius: "12px", cursor: "pointer", color: "#c0d0c0" },
+  mpa: { borderColor: "#FF9933", background: "rgba(255,153,51,0.12)", color: "#FF9933" },
+  mpn: { fontSize: "12px", fontWeight: "600" }, mpp: { fontSize: "11px", opacity: 0.6 },
+  ami: { width: "100%", padding: "16px", fontSize: "28px", fontWeight: "800", textAlign: "center", background: "rgba(0,0,0,0.35)", border: "1.5px solid rgba(255,153,51,0.25)", borderRadius: "12px", color: "#FF9933", outline: "none", boxSizing: "border-box" },
+  qag: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "6px", marginTop: "10px" },
+  qab: { padding: "8px", fontSize: "12px", fontWeight: "700", borderRadius: "8px", background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.08)", color: "#8faa8f", cursor: "pointer", textAlign: "center" },
+  qaA: { borderColor: "#FF9933", color: "#FF9933", background: "rgba(255,153,51,0.1)" },
+  hl: { maxHeight: "60vh", overflowY: "auto" }, he: { textAlign: "center", color: "#5a7a5a", padding: "24px 0" },
+  hi: { padding: "12px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" },
+  ht: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" },
+  hp: { fontSize: "13px", fontWeight: "600", color: "#c0d0c0" }, ha: { fontSize: "15px", fontWeight: "800", color: "#FF9933" },
+  hbt: { display: "flex", justifyContent: "space-between" }, hn: { fontSize: "11px", color: "#5a7a5a" }, htm: { fontSize: "11px", color: "#5a7a5a" },
+  cfb: { background: "#142e1e", borderRadius: "16px", padding: "24px", border: "1px solid rgba(255,153,51,0.2)", maxWidth: "320px", margin: "auto" },
+  cft: { fontSize: "15px", color: "#e8f0e8", margin: "0 0 20px", textAlign: "center", lineHeight: "1.5" },
+  cfbs: { display: "flex", gap: "10px" },
+  cfc: { flex: 1, padding: "12px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "#8faa8f", fontSize: "14px", fontWeight: "700", cursor: "pointer" },
+  cfy: { flex: 1, padding: "12px", borderRadius: "10px", border: "none", background: "#e85454", color: "#fff", fontSize: "14px", fontWeight: "700", cursor: "pointer" },
+  prw: { display: "flex", alignItems: "center", gap: "10px", padding: "10px 10px 10px 14px", background: "rgba(0,0,0,0.15)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "10px", cursor: "pointer", marginBottom: "4px", position: "relative", width: "100%", textAlign: "left" },
+  tab: { flex: 1, padding: "10px", fontSize: "13px", fontWeight: "700", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.2)", color: "#5a7a5a", cursor: "pointer", textAlign: "center" },
+  tabA: { borderColor: "#FF9933", color: "#FF9933", background: "rgba(255,153,51,0.1)" },
+  mi: { display: "block", width: "100%", padding: "12px 16px", fontSize: "13px", fontWeight: "600", color: "#e8f0e8", background: "transparent", border: "none", borderRadius: "8px", cursor: "pointer", textAlign: "left" },
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(function() { return ( <Prov><Router /></Prov> ); }));
+  </script>
+  <script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }</script>
+</body>
+</html>
